@@ -1,0 +1,392 @@
+#!/usr/bin/env bash
+# empty-trash: list what is in the trash, ask, then empty it. For this machine and SSH hosts.
+#
+# Usage: empty-trash [options] [target ...]
+#
+#   target         "local" for this machine, or an SSH host. Without a target: this machine,
+#                  then each host in the hosts file.
+#   -l, --list     list only, never delete
+#       --sudo     also root's trash and items that only root can delete (through sudo)
+#   -h, --help     show this help
+#   -V, --version  show the version
+#
+# Hosts file: ~/.config/empty-trash/hosts. One SSH host per line. Add the word "sudo" after a
+# host to use sudo on that host. A line that starts with # is a comment.
+#
+# The command deletes only after you type "y" at a terminal. Without a terminal on stdin it only
+# lists, and there is no --yes option: a script or an AI agent that runs it gets a list.
+#
+# https://github.com/net-snix/empty-trash (MIT License)
+set -uo pipefail
+
+VERSION=0.1.0
+SELF=${BASH_SOURCE[0]:-}
+
+# ---- Worker: runs on the machine that owns the trash (this one, or a host through ssh) --------
+
+use_sudo=0
+run() { if ((use_sudo)); then sudo -n "$@"; else "$@"; fi; }
+
+human() {
+  awk -v k="$1" 'BEGIN {
+    split("KiB MiB GiB TiB", u, " "); i = 1
+    while (k >= 1024 && i < 4) { k /= 1024; i++ }
+    printf((i == 1 ? "%d %s" : "%.1f %s"), k, u[i])
+  }'
+}
+
+items() { if (($1 == 1)); then echo "1 item"; else echo "$1 items"; fi; }
+
+# GNU and BSD stat use different options for a format.
+if stat -c %u / > /dev/null 2>&1; then STAT=(stat -c); else STAT=(stat -f); fi
+owner() { run "${STAT[@]}" %u "$1" 2> /dev/null; }
+dir_id() { run "${STAT[@]}" %d:%i "$1" 2> /dev/null; }
+
+# Linux: the mount points that can hold a trash folder, one per line.
+mounts() {
+  [[ -r /proc/self/mounts ]] || return 0
+  local mp type
+  while read -r _ mp type _; do
+    if [[ $mp != / ]]; then
+      case $type in
+        proc | sysfs | devtmpfs | devpts | cgroup | cgroup2 | securityfs | debugfs | tracefs | \
+          pstore | bpf | mqueue | hugetlbfs | configfs | fusectl | autofs | binfmt_misc | nsfs | \
+          squashfs | efivarfs | rpc_pipefs | overlay | ramfs | selinuxfs | nfsd | \
+          fuse.gvfsd-fuse | fuse.portal | fuse.snapfuse) continue ;;
+      esac
+    fi
+    # /proc/self/mounts writes a space in a path as \040. printf %b wants \0040.
+    # shellcheck disable=SC2001  # a back-reference: ${variable//search/replace} cannot do this
+    [[ $mp == *\\* ]] && mp=$(printf '%b' "$(sed 's/\\\([0-7]\{3\}\)/\\0\1/g' <<< "$mp")")
+    printf '%s\n' "$mp"
+  done < /proc/self/mounts
+}
+
+# Each place where a trash folder can be, one per line. Most of them do not exist.
+# EMPTY_TRASH_TEST_DIRS (colon-separated) replaces the list: the tests use it.
+candidates() {
+  if [[ -n ${EMPTY_TRASH_TEST_DIRS:-} ]]; then
+    tr ':' '\n' <<< "$EMPTY_TRASH_TEST_DIRS"
+    return 0
+  fi
+  local ids=$UID id m
+  ((use_sudo)) && ids="$UID 0"
+  if [[ $(uname -s) == Darwin ]]; then
+    printf '%s\n' "$HOME/.Trash" "$HOME/Library/Mobile Documents/.Trash"
+    ((use_sudo)) && printf '%s\n' /var/root/.Trash
+    for m in /Volumes/*; do
+      for id in $ids; do printf '%s\n' "$m/.Trashes/$id"; done
+    done
+  else
+    printf '%s\n' "${XDG_DATA_HOME:-$HOME/.local/share}/Trash"
+    ((use_sudo)) && printf '%s\n' /root/.local/share/Trash
+    mounts | while IFS= read -r m; do
+      for id in $ids; do printf '%s\n' "${m%/}/.Trash-$id" "${m%/}/.Trash/$id"; done
+    done
+  fi
+  return 0
+}
+
+# Only a folder with one of these names is ever emptied, whatever the list says.
+# flat: the items are in the folder itself (macOS). xdg: files/, info/, expunged/ (FreeDesktop).
+RE_FLAT='(/\.Trash|/\.Trashes/[0-9]+)$'
+RE_XDG='(/Trash|/\.Trash-[0-9]+|/\.Trash/[0-9]+)$'
+RE_SHARED='/\.Trash/[0-9]+$'
+RE_HOST='^[A-Za-z0-9_][A-Za-z0-9._@-]*$'
+RE_ANSWER='^[0-9]+( [0-9]+)+$'
+is_trash() { [[ $1 =~ $RE_FLAT || $1 =~ $RE_XDG ]]; }
+layout() { if [[ $1 =~ $RE_FLAT ]]; then echo flat; else echo xdg; fi; }
+
+# Prints "ok<TAB>folder" for each trash folder that is safe to work on, and "note<TAB>text" for
+# each folder that is left alone.
+valid_dirs() {
+  local d own id seen=$'\n'
+  candidates | while IFS= read -r d; do
+    [[ -n $d ]] || continue
+    run test -d "$d" 2> /dev/null || continue
+    if ! is_trash "$d"; then
+      printf 'note\tnot a trash folder, left alone: %s\n' "$d"
+      continue
+    fi
+    if run test -L "$d" 2> /dev/null || { [[ $d =~ $RE_SHARED ]] && run test -L "${d%/*}" 2> /dev/null; }; then
+      printf 'note\ta symbolic link, left alone: %s\n' "$d"
+      continue
+    fi
+    own=$(owner "$d")
+    if [[ $own != "$UID" && $own != 0 ]]; then
+      printf 'note\towned by another user, left alone: %s\n' "$d"
+      continue
+    fi
+    id=$(dir_id "$d")
+    [[ -n $id ]] || id=$d
+    case $seen in *$'\n'"$id"$'\n'*) continue ;; esac
+    seen+="$id"$'\n'
+    printf 'ok\t%s\n' "$d"
+  done
+}
+
+# Runs find on the top-level items of trash folder $1. More arguments go to find.
+find_items() {
+  local d=$1 s
+  shift
+  if [[ $(layout "$d") == flat ]]; then
+    run find "$d" -mindepth 1 -maxdepth 1 ! -name .DS_Store "$@" 2> /dev/null
+  else
+    for s in files expunged; do
+      run test -d "$d/$s" 2> /dev/null && run find "$d/$s" -mindepth 1 -maxdepth 1 "$@" 2> /dev/null
+    done
+  fi
+  return 0
+}
+
+# macOS answers "Operation not permitted" for the trash when the terminal app has no Full Disk
+# Access. An unreadable folder must not look like an empty one.
+readable() {
+  local s
+  run ls -A "$1" > /dev/null 2>&1 || return 1
+  [[ $(layout "$1") == flat ]] && return 0
+  for s in files expunged; do
+    run test -d "$1/$s" 2> /dev/null || continue
+    run ls -A "$1/$s" > /dev/null 2>&1 || return 1
+  done
+  return 0
+}
+
+empty_dir() {
+  local d=$1 s del=(rm -rf)
+  # Do not go into another filesystem that is mounted below an item.
+  if rm -f --one-file-system 2> /dev/null; then
+    del=(rm -rf --one-file-system)
+  elif rm -fx 2> /dev/null; then
+    del=(rm -rfx)
+  fi
+  if [[ $(layout "$d") == flat ]]; then
+    run find "$d" -mindepth 1 -maxdepth 1 -exec "${del[@]}" -- {} + 2> /dev/null
+  else
+    for s in files info expunged; do
+      run test -d "$d/$s" 2> /dev/null || continue
+      run test -L "$d/$s" 2> /dev/null && continue
+      run find "$d/$s" -mindepth 1 -maxdepth 1 -exec "${del[@]}" -- {} + 2> /dev/null
+    done
+    run rm -f -- "$d/directorysizes" 2> /dev/null
+  fi
+  return 0
+}
+
+# The last line of each worker answer starts with "@@": numbers for the driver.
+worker_list() {
+  local kind d out n kib k p total_kib=0 total_items=0 denied=0
+  if ((use_sudo)) && ! sudo -n true 2> /dev/null; then
+    echo "  sudo needs a password here: this run goes on without sudo."
+    use_sudo=0
+    denied=1
+  fi
+  while IFS=$'\t' read -r kind d; do
+    if [[ $kind == note ]]; then
+      echo "  $d"
+      continue
+    fi
+    if ! readable "$d"; then
+      echo "  no access: $d"
+      [[ $(uname -s) == Darwin ]] &&
+        echo "    Give the terminal app Full Disk Access (System Settings > Privacy & Security)."
+      denied=1
+      continue
+    fi
+    out=$(find_items "$d" -exec du -sxk {} +)
+    [[ -n $out ]] || continue
+    n=$(grep -c . <<< "$out")
+    kib=$(awk -F'\t' '{ s += $1 } END { printf "%d", s }' <<< "$out")
+    total_kib=$((total_kib + kib))
+    total_items=$((total_items + n))
+    printf '  %10s  %12s  %s\n' "$(human "$kib")" "$(items "$n")" "$d"
+    sort -rn <<< "$out" | head -5 | while IFS=$'\t' read -r k p; do
+      printf '  %24s  %s\n' "$(human "$k")" "${p##*/}"
+    done
+  done < <(valid_dirs)
+  if ((total_items > 0)); then
+    echo "  Total: $(human "$total_kib"), $(items "$total_items")"
+  elif ((!denied)); then
+    echo "  The trash is empty."
+  fi
+  echo "@@ $total_kib $total_items $denied"
+}
+
+worker_empty() {
+  local kind d n left=0 denied=0 with_sudo=$use_sudo
+  if ((use_sudo)) && ! sudo -n true 2> /dev/null; then use_sudo=0; fi
+  while IFS=$'\t' read -r kind d; do
+    [[ $kind == ok ]] || continue
+    if ! readable "$d"; then
+      denied=1
+      continue
+    fi
+    empty_dir "$d"
+    n=$(find_items "$d" -print | grep -c .)
+    left=$((left + n))
+  done < <(valid_dirs)
+  if ((left > 0)); then
+    echo "  Still there: $(items "$left") (locked, in use, or only root can delete them)."
+    ((with_sudo)) || echo "  Items that only root can delete: run again with --sudo."
+  fi
+  echo "@@ $left $denied"
+}
+
+# The worker entry is for `bash -s` through ssh only. The command file on disk refuses it, so the
+# installed command has no way to delete without the prompt.
+if [[ ${1:-} == __worker ]]; then
+  if [[ -n $SELF ]]; then
+    echo "empty-trash: __worker is internal" >&2
+    exit 2
+  fi
+  [[ ${3:-} == sudo ]] && ((EUID != 0)) && use_sudo=1
+  case ${2:-} in
+    list) worker_list < /dev/null ;;
+    empty) worker_empty < /dev/null ;;
+    *) exit 2 ;;
+  esac
+  exit 0
+fi
+
+# ---- Driver: lists, asks, then tells the worker to empty ---------------------------------------
+
+usage() {
+  echo "usage: empty-trash [--list] [--sudo] [local | HOST ...]   (--help shows more)" >&2
+  exit 2
+}
+
+list_only=0
+cli_sudo=0
+names=()
+for a in "$@"; do
+  case $a in
+    -l | --list) list_only=1 ;;
+    --sudo) cli_sudo=1 ;;
+    -V | --version)
+      echo "empty-trash $VERSION"
+      exit 0
+      ;;
+    -h | --help)
+      if [[ -r $SELF ]]; then
+        awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$SELF"
+      else
+        echo "usage: empty-trash [--list] [--sudo] [local | HOST ...]"
+      fi
+      exit 0
+      ;;
+    -*) usage ;;
+    *)
+      [[ $a =~ $RE_HOST ]] || usage
+      names+=("$a")
+      ;;
+  esac
+done
+
+have_tty=0
+[[ -t 0 ]] && have_tty=1
+if ((!list_only && !have_tty)); then
+  echo "empty-trash: no terminal on stdin, so this run only lists. It never deletes without a prompt." >&2
+  list_only=1
+fi
+
+# Targets: two lists of the same length, the name and 1 or 0 for sudo.
+targets=()
+sudos=()
+if ((${#names[@]} > 0)); then
+  for a in "${names[@]}"; do
+    targets+=("$a")
+    sudos+=("$cli_sudo")
+  done
+else
+  targets+=(local)
+  sudos+=("$cli_sudo")
+  hosts_file=${EMPTY_TRASH_HOSTS:-${XDG_CONFIG_HOME:-$HOME/.config}/empty-trash/hosts}
+  if [[ -r $hosts_file ]]; then
+    while read -r host word _; do
+      [[ -n $host && $host != \#* ]] || continue
+      if [[ ! $host =~ $RE_HOST ]]; then
+        echo "empty-trash: not a host name in $hosts_file: $host" >&2
+        continue
+      fi
+      targets+=("$host")
+      if ((cli_sudo)) || [[ ${word:-} == sudo ]]; then sudos+=(1); else sudos+=(0); fi
+    done < "$hosts_file"
+  fi
+fi
+
+bold=''
+plain=''
+if [[ -t 1 && -z ${NO_COLOR:-} ]]; then
+  bold=$'\033[1m'
+  plain=$'\033[0m'
+fi
+
+# call TARGET MODE SUDO: the worker's answer on stdout.
+call() {
+  local target=$1 mode=$2 with_sudo=$3 word=''
+  if [[ $target == local ]]; then
+    use_sudo=$with_sudo
+    ((EUID == 0)) && use_sudo=0
+    "worker_$mode"
+    return
+  fi
+  if [[ ! -r $SELF ]]; then
+    echo "  empty-trash must be a file on disk to work on another host." >&2
+    return 1
+  fi
+  local opts=(-o ConnectTimeout=8)
+  ((have_tty)) || opts+=(-o BatchMode=yes)
+  ((with_sudo)) && word=sudo
+  # shellcheck disable=SC2029  # the mode and the word are fixed strings, expanded here on purpose
+  ssh "${opts[@]}" -- "$target" "bash -s -- __worker $mode $word" < "$SELF"
+}
+
+# ask TARGET MODE SUDO: prints the worker's lines, keeps the numbers in $answer.
+answer=''
+ask() {
+  local line
+  answer=''
+  while IFS= read -r line; do
+    if [[ $line == '@@ '* ]]; then answer=${line#@@ }; else printf '%s\n' "$line"; fi
+  done < <(call "$@")
+  [[ $answer =~ $RE_ANSWER ]]
+}
+
+do_target() {
+  local target=$1 with_sudo=$2 where kib count denied left reply
+  if [[ $target == local ]]; then
+    where="this machine"
+    printf '%sThis machine:%s\n' "$bold" "$plain"
+    # sudo -v asks for the password once, so the worker's `sudo -n` calls then work.
+    if ((with_sudo && have_tty && EUID != 0)); then sudo -v || with_sudo=0; fi
+  else
+    where=$target
+    printf '%s%s:%s\n' "$bold" "$target" "$plain"
+  fi
+  if ! ask "$target" list "$with_sudo"; then
+    echo "  no answer from $where (host off, no ssh access, or no bash there)"
+    return 1
+  fi
+  read -r kib count denied <<< "$answer"
+  if ((list_only || count == 0)); then return "$denied"; fi
+  read -r -p "Permanently delete $(items "$count") ($(human "$kib")) on $where? [y/N] " reply
+  if [[ $reply != y && $reply != Y ]]; then
+    echo "  Left as is."
+    return "$denied"
+  fi
+  if ! ask "$target" empty "$with_sudo"; then
+    echo "  no answer from $where: look at the trash there before you run this again"
+    return 1
+  fi
+  read -r left denied <<< "$answer"
+  if ((left > 0)); then return 1; fi
+  echo "  Emptied."
+  return "$denied"
+}
+
+rc=0
+for i in "${!targets[@]}"; do
+  ((i > 0)) && echo
+  do_target "${targets[$i]}" "${sudos[$i]}" || rc=1
+done
+exit "$rc"

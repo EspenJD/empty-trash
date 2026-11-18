@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="780" height="542" viewBox="0 0 780 542" role="img" aria-label="empty-trash lists the trash on this machine and on an SSH host, and asks before it deletes">
+<style>
+text { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace; font-size: 14px; white-space: pre; fill: #c9d1d9; }
+.head { fill: #ffffff; font-weight: 700; } .dir { fill: #e6edf3; } .it { fill: #8b949e; } .dim { fill: #8b949e; }
+.cmd { fill: #ffffff; font-weight: 700; } .ask { fill: #e3b341; } .key { fill: #ffffff; font-weight: 700; } .ok { fill: #56d364; }
+.title { fill: #8b949e; font-size: 12px; font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; }
+</style>
+<rect width="780" height="542" rx="10" fill="#0d1117"/>
+<rect width="780" height="542" rx="10" fill="none" stroke="#30363d"/>
+<path d="M0 10a10 10 0 0 1 10-10h760a10 10 0 0 1 10 10v28H0z" fill="#161b22"/>
+<circle cx="20" cy="19" r="6" fill="#ff5f57"/><circle cx="40" cy="19" r="6" fill="#febc2e"/><circle cx="60" cy="19" r="6" fill="#28c840"/>
+<text class="title" x="390.0" y="23" text-anchor="middle">empty-trash</text>
+<text x="24" y="66" xml:space="preserve"><tspan class="dim">$ </tspan><tspan class="cmd">empty-trash</tspan></text>
+<text x="24" y="87" xml:space="preserve"><tspan class="head">This machine:</tspan></text>
+<text x="24" y="108" xml:space="preserve"><tspan class="dir">     1.9 GiB      14 items  /Users/alex/.Trash</tspan></text>
+<text x="24" y="129" xml:space="preserve"><tspan class="it">                   1.2 GiB  old-vm-image.qcow2</tspan></text>
+<text x="24" y="150" xml:space="preserve"><tspan class="it">                 410.6 MiB  node_modules</tspan></text>
+<text x="24" y="171" xml:space="preserve"><tspan class="it">                 212.0 MiB  render-cache</tspan></text>
+<text x="24" y="192" xml:space="preserve"><tspan class="it">                  48.3 MiB  screen-recording.mov</tspan></text>
+<text x="24" y="213" xml:space="preserve"><tspan class="it">                   9.1 MiB  export-final-v2.zip</tspan></text>
+<text x="24" y="234" xml:space="preserve"><tspan class="txt">  Total: 1.9 GiB, 14 items</tspan></text>
+<text x="24" y="255" xml:space="preserve"><tspan class="ask">Permanently delete 14 items (1.9 GiB) on this machine? [y/N] </tspan><tspan class="key">y</tspan></text>
+<text x="24" y="276" xml:space="preserve"><tspan class="ok">  Emptied.</tspan></text>
+<text x="24" y="297" xml:space="preserve"><tspan class="txt"></tspan></text>
+<text x="24" y="318" xml:space="preserve"><tspan class="head">nas:</tspan></text>
+<text x="24" y="339" xml:space="preserve"><tspan class="dir">    86.3 GiB      31 items  /mnt/tank/.Trash-1000</tspan></text>
+<text x="24" y="360" xml:space="preserve"><tspan class="it">                  52.0 GiB  backups-2024</tspan></text>
+<text x="24" y="381" xml:space="preserve"><tspan class="it">                  30.1 GiB  camera-raw</tspan></text>
+<text x="24" y="402" xml:space="preserve"><tspan class="it">                   4.1 GiB  build-artifacts</tspan></text>
+<text x="24" y="423" xml:space="preserve"><tspan class="it">                  96.2 MiB  logs</tspan></text>
+<text x="24" y="444" xml:space="preserve"><tspan class="it">                  12.0 MiB  notes.tar.gz</tspan></text>
+<text x="24" y="465" xml:space="preserve"><tspan class="txt">  Total: 86.3 GiB, 31 items</tspan></text>
+<text x="24" y="486" xml:space="preserve"><tspan class="ask">Permanently delete 31 items (86.3 GiB) on nas? [y/N] </tspan><tspan class="key">n</tspan></text>
+<text x="24" y="507" xml:space="preserve"><tspan class="dim">  Left as is.</tspan></text>
+</svg>
