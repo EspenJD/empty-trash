@@ -169,7 +169,34 @@ out=$(EMPTY_TRASH_HOSTS="$T/hosts" "$E" --list 2>&1)
 ck "no target: this machine, then the hosts in the file" "$(grep -E '^(This machine|myhost|other):' <<< "$out" | tr -d '\n')" "This machine:myhost:other:"
 ck "hosts file: 'sudo' after a host reaches the worker" "$(grep -c -- '-- other bash -s -- __worker list sudo' "$STUB_LOG")/$(grep -c -- '-- myhost bash -s -- __worker list $' "$STUB_LOG")" "1/1"
 ck "hosts file: a line that is not a host name is named and skipped" "$(grep -c 'not a host name' <<< "$out")" 1
+printf 'myhost\nother sudo' > "$T/hosts-no-line-end"
 : > "$STUB_LOG"
+EMPTY_TRASH_HOSTS="$T/hosts-no-line-end" "$E" --list > /dev/null 2>&1
+ck "hosts file: a last line without a line end is read" "$(grep -c -- '-- other bash -s -- __worker list sudo' "$STUB_LOG")" 1
+
+# A host that is named as a target takes its word "sudo" from the hosts file.
+: > "$STUB_LOG"
+out=$(EMPTY_TRASH_HOSTS="$T/hosts" "$E" --list other 2>&1)
+ck "named host with 'sudo' in the hosts file: 'sudo' reaches the worker" "$(grep -c -- '-- other bash -s -- __worker list sudo' "$STUB_LOG")" 1
+ck "named host: a bad line in the hosts file is not named" "$(grep -c 'not a host name' <<< "$out")" 0
+: > "$STUB_LOG"
+EMPTY_TRASH_HOSTS="$T/hosts" "$E" --list myhost > /dev/null 2>&1
+ck "named host without the word in the hosts file: no sudo" "$(grep -c -- '-- myhost bash -s -- __worker list $' "$STUB_LOG")/$(grep -c '^sudo ' "$STUB_LOG")" "1/0"
+: > "$STUB_LOG"
+EMPTY_TRASH_HOSTS="$T/hosts" "$E" --list nothere > /dev/null 2>&1
+ck "named host that is not in the hosts file: no sudo" "$(grep -c -- '-- nothere bash -s -- __worker list $' "$STUB_LOG")/$(grep -c '^sudo ' "$STUB_LOG")" "1/0"
+: > "$STUB_LOG"
+EMPTY_TRASH_HOSTS="$T/hosts" "$E" --list --sudo myhost nothere > /dev/null 2>&1
+ck "--sudo with named hosts: sudo, whatever the hosts file says" "$(grep -c -- 'bash -s -- __worker list sudo' "$STUB_LOG")" 2
+printf 'local sudo\n' > "$T/hosts-local"
+: > "$STUB_LOG"
+out=$(EMPTY_TRASH_HOSTS="$T/hosts-local" "$E" --list local 2>&1)
+ck "target 'local': a line 'local sudo' in the hosts file gives no sudo" "$(grep -c '^This machine:' <<< "$out")/$(grep -c '^sudo ' "$STUB_LOG")" "1/0"
+: > "$STUB_LOG"
+out=$(EMPTY_TRASH_HOSTS="$T/hosts" pty y "$E" other)
+ck "named host with 'sudo' in the hosts file, answer y: the worker deletes through sudo" "$(left) $(grep -c '^sudo -n find .* -exec rm' "$STUB_LOG" | awk '{ print ($1 > 0) }')" "0 1"
+
+mk
 out=$(pty y "$E" --sudo local)
 ck "--sudo: the worker deletes through sudo" "$(left) $(grep -c '^sudo -n find .* -exec rm' "$STUB_LOG" | awk '{ print ($1 > 0) }')" "0 1"
 mk

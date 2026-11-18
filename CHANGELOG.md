@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.1 - 2026-11-18
+
+- A host that you name on the command line now takes its word `sudo` from the hosts file. Before,
+  `empty-trash HOST` used sudo only with `--sudo`, also when the file said `HOST sudo`.
+- The last line of the hosts file is read when it has no line end. Before, that host was skipped.
+
 ## 0.1.0 - 2026-11-18
 
 First release.

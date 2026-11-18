@@ -102,6 +102,11 @@ alex@media-server
 
 Each line is a host that `ssh` knows. Add the word `sudo` to use sudo on that host.
 
+The word also applies when you name the host on the command line: with the file above,
+`empty-trash buildbox` uses sudo and `empty-trash nas` does not. The name must be the same as in
+the file. `--sudo` uses sudo on every target, whatever the file says. A host that is not in the
+file gets sudo only with `--sudo`.
+
 The host needs bash and your SSH key, nothing else. The command sends itself through
 `ssh HOST bash -s`, the host lists its trash, and the question comes to **your** terminal. A host
 that is off gets one line and exit code 1; the other hosts still run.
@@ -167,7 +172,7 @@ No. Inside WSL it works as on Linux.
 tests/run.sh
 ```
 
-36 checks on fake trash folders in a temporary folder, for both folder layouts, with stand-ins
+44 checks on fake trash folders in a temporary folder, for both folder layouts, with stand-ins
 for `ssh` and `sudo`. No test deletes in a real trash. CI runs them on Linux and on macOS, and
 [ShellCheck](https://www.shellcheck.net/) checks the code.
 

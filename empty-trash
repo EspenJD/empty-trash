@@ -11,7 +11,8 @@
 #   -V, --version  show the version
 #
 # Hosts file: ~/.config/empty-trash/hosts. One SSH host per line. Add the word "sudo" after a
-# host to use sudo on that host. A line that starts with # is a comment.
+# host to use sudo on that host, also when you name that host as a target. A line that starts
+# with # is a comment.
 #
 # The command deletes only after you type "y" at a terminal. Without a terminal on stdin it only
 # lists, and there is no --yes option: a script or an AI agent that runs it gets a list.
@@ -19,7 +20,7 @@
 # https://github.com/net-snix/empty-trash (MIT License)
 set -uo pipefail
 
-VERSION=0.1.0
+VERSION=0.1.1
 SELF=${BASH_SOURCE[0]:-}
 
 # ---- Worker: runs on the machine that owns the trash (this one, or a host through ssh) --------
@@ -289,29 +290,56 @@ if ((!list_only && !have_tty)); then
   list_only=1
 fi
 
+# The hosts file: two lists of the same length, the host and 1 or 0 for its word "sudo".
+hosts_file=${EMPTY_TRASH_HOSTS:-${XDG_CONFIG_HOME:-$HOME/.config}/empty-trash/hosts}
+file_hosts=()
+file_sudos=()
+if [[ -r $hosts_file ]]; then
+  # The test after || reads a last line that has no line end.
+  while read -r host word _ || [[ -n $host ]]; do
+    [[ -n $host && $host != \#* ]] || continue
+    if [[ ! $host =~ $RE_HOST ]]; then
+      # A run with a target does not work through the file, so it does not name a bad line.
+      ((${#names[@]} > 0)) || echo "empty-trash: not a host name in $hosts_file: $host" >&2
+      continue
+    fi
+    file_hosts+=("$host")
+    if [[ ${word:-} == sudo ]]; then file_sudos+=(1); else file_sudos+=(0); fi
+  done < "$hosts_file"
+fi
+
+# file_sudo HOST: true when the first line for HOST in the hosts file has the word "sudo".
+file_sudo() {
+  local i
+  for ((i = 0; i < ${#file_hosts[@]}; i++)); do
+    if [[ ${file_hosts[$i]} == "$1" ]]; then
+      ((file_sudos[i]))
+      return
+    fi
+  done
+  return 1
+}
+
 # Targets: two lists of the same length, the name and 1 or 0 for sudo.
 targets=()
 sudos=()
 if ((${#names[@]} > 0)); then
   for a in "${names[@]}"; do
     targets+=("$a")
-    sudos+=("$cli_sudo")
+    # "local" is this machine, never a line of the hosts file.
+    if ((cli_sudo)) || { [[ $a != local ]] && file_sudo "$a"; }; then
+      sudos+=(1)
+    else
+      sudos+=(0)
+    fi
   done
 else
   targets+=(local)
   sudos+=("$cli_sudo")
-  hosts_file=${EMPTY_TRASH_HOSTS:-${XDG_CONFIG_HOME:-$HOME/.config}/empty-trash/hosts}
-  if [[ -r $hosts_file ]]; then
-    while read -r host word _; do
-      [[ -n $host && $host != \#* ]] || continue
-      if [[ ! $host =~ $RE_HOST ]]; then
-        echo "empty-trash: not a host name in $hosts_file: $host" >&2
-        continue
-      fi
-      targets+=("$host")
-      if ((cli_sudo)) || [[ ${word:-} == sudo ]]; then sudos+=(1); else sudos+=(0); fi
-    done < "$hosts_file"
-  fi
+  for ((i = 0; i < ${#file_hosts[@]}; i++)); do
+    targets+=("${file_hosts[$i]}")
+    if ((cli_sudo)); then sudos+=(1); else sudos+=("${file_sudos[$i]}"); fi
+  done
 fi
 
 bold=''
