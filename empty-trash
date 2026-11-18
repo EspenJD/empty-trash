@@ -17,10 +17,10 @@
 # The command deletes only after you type "y" at a terminal. Without a terminal on stdin it only
 # lists, and there is no --yes option: a script or an AI agent that runs it gets a list.
 #
-# https://github.com/net-snix/empty-trash (MIT License)
+# https://github.com/EspenJD/empty-trash (MIT License)
 set -uo pipefail
 
-VERSION=0.1.1
+VERSION=0.1.2
 SELF=${BASH_SOURCE[0]:-}
 
 # ---- Worker: runs on the machine that owns the trash (this one, or a host through ssh) --------

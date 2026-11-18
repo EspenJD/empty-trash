@@ -6,7 +6,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/net-snix/empty-trash/actions/workflows/ci.yml"><img src="https://github.com/net-snix/empty-trash/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/EspenJD/empty-trash/actions/workflows/ci.yml"><img src="https://github.com/EspenJD/empty-trash/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT License"></a>
   <img src="https://img.shields.io/badge/bash-3.2%2B-4EAA25?logo=gnubash&logoColor=white" alt="bash 3.2 or newer">
   <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey" alt="macOS and Linux">
@@ -37,14 +37,14 @@ It is one bash file with no dependencies.
 
 ```bash
 mkdir -p ~/.local/bin
-curl -fsSL https://raw.githubusercontent.com/net-snix/empty-trash/main/empty-trash -o ~/.local/bin/empty-trash
+curl -fsSL https://raw.githubusercontent.com/EspenJD/empty-trash/main/empty-trash -o ~/.local/bin/empty-trash
 chmod +x ~/.local/bin/empty-trash
 ```
 
 Make sure that `~/.local/bin` is on your `PATH`. Or clone the repository and link the file:
 
 ```bash
-git clone https://github.com/net-snix/empty-trash.git
+git clone https://github.com/EspenJD/empty-trash.git
 ln -s "$PWD/empty-trash/empty-trash" ~/.local/bin/empty-trash
 ```
 

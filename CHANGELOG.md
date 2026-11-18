@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.2 - 2026-11-18
+
+- The GitHub account has a new name. The install command, the links and the license line use
+  `EspenJD/empty-trash` now. No change in behaviour.
+
 ## 0.1.1 - 2026-11-18
 
 - A host that you name on the command line now takes its word `sudo` from the hosts file. Before,
